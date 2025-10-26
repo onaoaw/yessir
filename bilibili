@@ -1,0 +1,284 @@
+--//[[ Services ]]\\--
+local LocalizationService = game:GetService("LocalizationService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+--//[[ Variables ]]\\--
+local Client = Players.LocalPlayer
+--=== CONFIG / WATCH ===--
+local LocalPlayer = Players.LocalPlayer
+local leaderstats = LocalPlayer:WaitForChild("leaderstats")
+local Sheckles = leaderstats:WaitForChild("Sheckles")
+
+local TARGET_PLACE = 124977557560410
+local THRESHOLD   = 100000
+local otherPlaceStarted = false
+
+-- Game
+local Farms = workspace:WaitForChild("Farm")
+local NPCs = workspace:WaitForChild("NPCS")
+local GameEvents = ReplicatedStorage:WaitForChild("GameEvents")
+local ModulesFolder = ReplicatedStorage:WaitForChild("Modules")
+
+local Remotes = {
+    BuySeed = GameEvents:WaitForChild("BuySeedStock"),
+    BuyDailyDealSeed = GameEvents:WaitForChild("BuyDailySeedShopStock"),
+    PlantSeed = GameEvents:WaitForChild("Plant_RE"),
+    SellAll = GameEvents:WaitForChild("Sell_Inventory"),
+    CollectPlants = GameEvents:WaitForChild("Crops"):WaitForChild("Collect")
+}
+local Modules = {
+    DataService = require(ModulesFolder:WaitForChild("DataService")),
+    CollectService = require(ModulesFolder:WaitForChild("CollectController"))
+}
+
+local Status = "Nothing"
+
+--//[[ Functions ]]\\--
+
+local function GetMyPlot()
+    for _,Farm in Farms:GetChildren() do
+        if Farm.Important.Data.Owner.Value == Client.Name then
+            return Farm
+        end
+    end
+end
+
+local function Goto(TargetCFrame, Thread)
+    if Status ~= Thread then return end
+    local char = Client.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = TargetCFrame
+    end
+end
+
+
+local function CollectPlant(Plant)
+    if Plant:FindFirstChild("Fruits") then
+        Remotes.CollectPlants:FireServer(Plant.Fruits:GetChildren())
+    else
+        Remotes.CollectPlants:FireServer({Plant})
+    end
+end
+
+--//[[ Main ]]\\--
+
+local MyPlot = GetMyPlot()
+local Plants = MyPlot.Important:WaitForChild("Plants_Physical")
+local PlantLocation = MyPlot.Important.Plant_Locations:GetChildren()[1]
+
+if game.PlaceId == 124977557560410 then
+    task.spawn(function()
+        while true do
+            if Modules.DataService:GetData().TotalCropsValueSold >= 100000 then
+                game:GetService("TeleportService"):Teleport(126884695634066)
+            end
+            task.wait(60)
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        if Status ~= "Nothing" then
+            repeat
+                task.wait(1)
+            until Status == "Nothing"
+        end
+        Status = "Restocking"
+        Goto(NPCs["Sell Stands"]["Shop Stand"].CFrame, "Restocking")
+        task.wait(1)
+        Remotes.SellAll:FireServer()
+        task.wait(1)
+        local Data = Modules.DataService:GetData()
+        local SeedStocks = Data.SeedStocks
+
+        for StockName,Stock in SeedStocks.Shop.Stocks do
+            if Stock.Stock > 0 then
+                for i=1, Stock.Stock do
+                    Remotes.BuySeed:FireServer("Shop", StockName)
+                end
+            end
+        end
+
+        for StockName,Stock in SeedStocks["Daily Deals"].Stocks do
+            if Stock.Stock > 0 then
+                for i=1, Stock.Stock do
+                    Remotes.BuyDailyDealSeed:FireServer(StockName)
+                end
+            end
+        end
+        task.wait(1)
+        Status = "Nothing"
+        task.wait(5)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if Status == "Nothing" then
+            Client.Character.Humanoid:UnequipTools()
+
+            for _,Object in Client.Backpack:GetChildren() do
+                local SeedValue = Object:GetAttribute("Seed")
+                if SeedValue then
+                    Status = "Planting"
+                    Client.Character.Humanoid:EquipTool(Object)
+                    Goto(PlantLocation.CFrame * CFrame.new(0, 2, 2), "Planting")
+                    task.wait(1)
+                    for i=1, Object:GetAttribute("Quantity") do
+                        Remotes.PlantSeed:FireServer(Vector3.new(PlantLocation.Position.X, 1.135, PlantLocation.Position.Z+2), SeedValue)
+                        task.wait(.45)
+                    end
+                    task.wait(0.5)
+                    Status = "Nothing"
+                end
+            end --// Plant seeds we have obtained
+        end
+
+        for _,Plant in Plants:GetChildren() do
+                CollectPlant(Plant)
+                task.wait()
+            end --// Collect Plants
+        task.wait()
+    end
+end)
+local function startOtherPlaceOnce()
+	if otherPlaceStarted then return end
+	otherPlaceStarted = true
+
+	setfpscap(5)
+	game:GetService("RunService"):Set3dRenderingEnabled(false)
+
+	getgenv().Config = {
+		PlaceId = 126884695634066,
+		ServerIP = "http://144.172.97.170:3001",
+		CrashOnFail = 0,
+		Messages = {
+			"HII GUYS                                                                                    [Tip]: Purchase your favorite pets instantly and securely at Blox․Garden",
+			"is real i bought pets                                                                                    [Tip]: Need Sheckles?  Blox․Garden",
+			"hmm                                                                                    [Tip]: Cheap items available now at Blox․Garden"
+		}
+	}
+
+	local HttpService = game:GetService("HttpService")
+	local TextChatService = game:GetService("TextChatService")
+	local TeleportService = game:GetService("TeleportService")
+
+	repeat task.wait() until Players.LocalPlayer
+	repeat task.wait() until TextChatService:FindFirstChild("TextChannels")
+		and TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+
+	local retry = 0
+
+	local function ServerHop(failed, job_id)
+		local url = Config.ServerIP .. (failed
+			and ("/failedServer?place_id=" .. Config.PlaceId .. "&job_id=" .. tostring(job_id))
+			or "/requestServer?place_id=" .. Config.PlaceId)
+
+		local ok, response
+		repeat
+			ok, response = pcall(request, {
+				Url = url,
+				Method = "GET",
+				Headers = { ["x-api-key"] = "620594f01de050e5db3cd6ab0e2387c29759b3cd3c86fc1a40b127a475b18f08" }
+			})
+			task.wait(0.5)
+		until ok and response and response.Body
+
+		local data = HttpService:JSONDecode(response.Body)
+		if data.error then
+			return ServerHop(true, data.jobId or job_id)
+		end
+
+		local JobId = data.jobId
+		if not JobId or JobId == "WAIT" then
+			return ServerHop(failed, job_id)
+		end
+
+		local TeleportFailed
+		TeleportFailed = TeleportService.TeleportInitFailed:Connect(function()
+			TeleportFailed:Disconnect()
+			retry += 1
+			if retry == Config.CrashOnFail then
+				while true do table.clear(getreg()) end
+			end
+			ServerHop(true, JobId)
+		end)
+
+		pcall(TeleportService.TeleportToPlaceInstance, TeleportService, game.PlaceId, JobId)
+	end
+
+	local function ChatSpammer(loop)
+		if loop then task.wait() end
+		local ch = TextChatService.TextChannels.RBXGeneral
+		ch:SendAsync(Config.Messages[1]); task.wait(0.2)
+		ch:SendAsync(Config.Messages[2]); task.wait(0.2)
+		ch:SendAsync(Config.Messages[3])
+	end
+
+	ChatSpammer()
+	task.wait()
+	ServerHop(false)
+	pcall(function()
+		while true do
+			task.wait(4)
+			ServerHop(false)
+		end
+	end)
+end
+
+--=== EVALUATION (runs on change + on start) ===--
+
+-- convert "1.8K" / "2.5M" / "500" → number
+local function parseShortNumber(s)
+    s = tostring(s):upper()
+    local num = tonumber(s:match("[%d%.]+")) or 0
+    if s:find("K") then
+        return num * 1e3
+    elseif s:find("M") then
+        return num * 1e6
+    elseif s:find("B") then
+        return num * 1e9
+    elseif s:find("T") then
+        return num * 1e12
+    else
+        return num
+    end
+end
+
+-- comma format for logs
+local function addCommas(n)
+    local s = tostring(math.floor(tonumber(n) or 0))
+    while true do
+        local ns, k = s:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+        s = ns
+        if k == 0 then break end
+    end
+    return s
+end
+
+local function evaluate()
+    local shecklesNum = parseShortNumber(Sheckles.Value)
+
+    if game.PlaceId == TARGET_PLACE then
+        if shecklesNum >= THRESHOLD then
+            -- threshold reached → hard stop (same behavior as your other script)
+            table.clear(getreg())
+        else
+            -- keep farming; your existing restock/plant/collect loops are already running
+            print(("[FARM] Sheckles %s / %s — continue farming")
+                :format(addCommas(shecklesNum), addCommas(THRESHOLD)))
+        end
+    else
+        -- not in target place; nothing mandatory here.
+        -- (If you want to auto-hop elsewhere, you can teleport here instead.)
+        -- game:GetService("TeleportService"):Teleport(TARGET_PLACE)
+        startOtherPlaceOnce()
+    end
+end
+
+-- run now and whenever Sheckles changes
+evaluate()
+Sheckles:GetPropertyChangedSignal("Value"):Connect(evaluate)
